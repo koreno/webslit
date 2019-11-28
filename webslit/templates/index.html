@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title> WebSlit: {{ fullpath }}</title>
+    <link href="/static/img/favicon.png" rel="icon" type="image/png">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet" type="text/css"/>
+    <link href="/static/css/xterm.min.css" rel="stylesheet" type="text/css"/>
+    <link href="/static/css/fullscreen.min.css" rel="stylesheet" type="text/css"/>
+    <style>
+      .row {
+        margin-top: 15px;
+        margin-bottom: 10px;
+      }
+
+      .container {
+        margin-top: 20px;
+      }
+
+      .btn {
+        margin-top: 15px;
+      }
+
+      .btn-danger {
+        margin-left: 5px;
+      }
+
+      html {
+        position: relative;
+        min-height: 100%;
+      }
+      body {
+        margin-bottom: 30px; /* Margin bottom by footer height */
+      }
+      .footer {
+        position: absolute;
+        bottom: 0;
+        width: 100%;
+        height: 60px; /* Set the fixed height of the footer here */
+        background-color: #202020;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container explorer-container">
+      <h3>{{ title }}</h3>
+      <div class="list-group">
+          {% for p in entries %}
+            <a href="{{ escape(p.path) }}" class="list-group-item list-group-item-action">
+              {% if p.is_dir %}<strong>{% end %}
+                {{ p.name }}
+              {% if p.is_dir %}</strong>{% end %}
+              {% if p.badge is not None %}
+                <span class="badge badge-info">
+                  {{ p.badge }}
+                </span>
+              {% end %}
+              {% if p.size is not None %}
+                <span class="label float-right">
+                  {% if p.is_dir %}<strong>{% end %}
+                    {{ p.size }}
+                  {% if p.is_dir %}</strong>{% end %}
+                </span>
+              {% end %}
+            </a>
+          {% end %}
+      </div>
+    </div>
+
+    <div class="container form-container" style="display: none">
+      <form id="load" action="" method="post" enctype="multipart/form-data"{% if debug %} novalidate{% end %}>
+        <label for="filepath">Path</label>
+        <input class="form-control" type="text" id="filepath" name="filepath" value="" required>
+        <input type="hidden" id="term" name="term" value="xterm-256color">
+        {% module xsrf_form_html() %}
+        <button type="submit" class="btn btn-primary">Load</button>
+      </form>
+    </div>
+
+    <div class="container">
+      <div id="status" style="color: red;"></div>
+      <div id="terminal"></div>
+    </div>
+
+    <div id="help-screen" style="display: none;
+          background: rgb(0, 0, 0, 0.6);
+          width: 100%; height: 100%;
+          font-size: 1rem;
+          backdrop-filter: blur(2px);
+          position: absolute; overflow-y: scroll;
+          top: 0; left: 0; z-index: 500;">
+
+      <div class="cover-container d-flex w-75 h-100 p-3 mx-auto flex-column">
+        <header class="masthead mb-auto"></header>
+        <main role="main" class="inner cover">
+          <div id="slit-help" class="container">
+            <div class="row">
+              <div class="col-sm">
+                <h3>Key Bindings:</h3>
+                <h5>Navigation</h5>
+                <ul>
+                <li><code>PageDown</code>, <code>f</code>, <code>Space</code> - Page Down</li>
+                <li><code>PageUp</code>, <code>b</code> - Page Up</li>
+                <li><code>Home</code>, <code>g</code> - Go to first line</li>
+                <li><code>End</code>, <code>G</code> - Go to last line</li>
+                <li><code>Arrow down</code>, <code>j</code> - Move one line down</li>
+                <li><code>Arrow up</code>, <code>k</code> - Move one line up</li>
+                <li><code>Arrow left</code>, <code>Arrow right</code> - Scroll horizontally</li>
+                <li><code>&lt;</code>, <code>&gt;</code> - Precise horizontal scrolling, 1 character a time</li>
+                </ul>
+                <h5>Search/Filters</h5>
+                <ul>
+                <li><code>/</code> - Forward search</li>
+                <li><code>?</code> - Backsearch</li>
+                <li><code>n</code> - Next match</li>
+                <li><code>N</code> - Previous match</li>
+                <li><code>CTRL-/</code> - Switch between <code>CaseSensitive</code> search and <code>RegEx</code></li>
+                <li><code>&amp;</code> - Filter: intersect</li>
+                <li><code>-</code> - Filter: exclude</li>
+                <li><code>+</code> - Filter: include</li>
+                <li><code>=</code> - Remove all filters</li>
+                <li><code>U</code> - Removes last filter</li>
+                <li><code>C</code> - Switches off/on all filters.
+                <br/> Useful for getting context of current line, which is the top-most line on the screen</li>
+                </ul>
+                <h5>Misc</h5>
+                <ul>
+                <li><code>K</code> - Keep N first characters(usually containing timestamp) when navigating horizontally<br>
+                Up/Down arrows during K-mode will adjust N of kept chars</li>
+                <li><code>W</code> - Wrap/Unwrap lines</li>
+                <li><code>CTRL-s</code> - Save filtered version to file (will prompt for filepath)</li>
+                <li><code>CTRL-c</code> - Copy selection (use mouse to select text)</li>
+                <li><code>q</code> - quit</li>
+                </ul>
+              </div>
+              <div class="col-sm">
+                <h3>Search Modes</h3>
+                <p>Both search and filters currently support the <code>CaseSensitive</code> and <code>RegEx</code> modes.
+                To switch between modes press <code>CTRL-/</code> in search/filter input.</p>
+                <p><strong>Note:</strong> For case-insensitive search in <strong>RegEx</strong> use <code>(?i)cOnDiTiOn</code></p>
+                <h3>Filters</h3>
+                <ul>
+                <li>Intersect (<code>&amp;</code>): Keep only lines that match the pattern</li>
+                <li>Exclude (<code>-</code>): Discard lines that match the pattern</li>
+                <li>Include (<code>+</code>): Restores lines that match pattern, even if they were excluded by previous filters</li>
+                </ul>
+                <p/>Filters are aggregated - Each filter acts on the results produced by the filters that came before.
+                Chaining of filters gives ability to filter out all the 'noise' dynamically, and get to what you're actually looking for.</p>
+                <p/>The first 'append' filter (if it is the first to be used) will work as an 'intersect' filter.
+                <p/>When adding filters the active line position (at top of screen) will remain the same, if possible.
+                <p/>For example, suppose you have huge log file with hundreds of thousands of lines from multiple threads.
+                <br/>Suppose now you are interested in are logs from "Thread-10 and "MainThread", and not interested in "send" and "receive" messages
+                <br/>In addition, you want to see any "Exception", regardless of previous filters.
+                <p/>The following sequence of filters will output the expected result:
+                <pre>
+                &amp;Thread-10
+                +MainThread
+                -receive
+                -send
+                +Exception
+                </pre>
+              </div>
+            </div>
+          </div>
+          <div id="webslit-help" class="container">
+            <h5><a href="https://github.com/koreno/webslit">WebSlit</a> is a log file explorer and viewer that
+              uses <a href="https://github.com/tigrawap/slit">slit</a> for viewing files efficiently</h5>
+            <h3>Key Bindings:</h3>
+            <ul>
+            <li>Use the arrow keys, Page-Up/Down, Home/End to navigate</li>
+            <li>Hit <code>Enter</code> on files to load them in <strong>Slit</strong></li>
+            <li><strong>HTML</strong> files will be open statically</li>
+            </ul>
+          </div>
+        </main>
+
+        <footer class="mastfoot mt-auto">
+          <div class="inner">
+            <h6 style="text-align: right;"><i>
+              Hit <b>Escape</b> to go back
+              </br>
+              Click <a href="#" id="toggle-help-view">
+                here</a> to toggle help screen
+            </i></h6>
+          </div>
+        </footer>
+      </div>
+
+    </div>
+
+
+    <div class="footer">
+      <div class="container">
+        <span class="muted-text">
+          <a href="https://github.com/koreno/webslit">WebSlit</a> is a gluing together of
+          <a href="https://github.com/huashengdun/webslit">WebSSH</a> and
+          <a href="https://github.com/tigrawap/slit">Slit</a>
+        </span>
+      </div>
+    </div>
+
+    <script src="/static/js/jquery.min.js"></script>
+    <script src="/static/js/popper.min.js"></script>
+    <script src="/static/js/bootstrap.min.js"></script>
+    <script src="/static/js/xterm.min.js"></script>
+    <script src="/static/js/fullscreen.min.js"></script>
+    <script src="/static/js/main.js"></script>
+    <script type="text/javascript">
+      var auto_load = "{{ auto_load }}";
+    </script>
+  </body>
+</html>

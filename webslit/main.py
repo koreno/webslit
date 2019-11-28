@@ -3,10 +3,10 @@ import tornado.web
 import tornado.ioloop
 
 from tornado.options import options
-from webssh import handler
-from webssh.handler import IndexHandler, WsockHandler, NotFoundHandler
-from webssh.settings import (
-    get_app_settings,  get_host_keys_settings, get_policy_setting,
+from webslit import handler
+from webslit.handler import IndexHandler, WsockHandler, NotFoundHandler
+from webslit.settings import (
+    get_app_settings, get_host_keys_settings, get_policy_setting,
     get_ssl_context, get_server_settings
 )
 
@@ -14,11 +14,14 @@ from webssh.settings import (
 def make_handlers(loop, options):
     host_keys_settings = get_host_keys_settings(options)
     policy = get_policy_setting(options, host_keys_settings)
+    handler_params = dict(loop=loop, policy=policy, host_keys_settings=host_keys_settings)
 
     handlers = [
-        (r'/', IndexHandler, dict(loop=loop, policy=policy,
-                                  host_keys_settings=host_keys_settings)),
-        (r'/ws', WsockHandler, dict(loop=loop))
+        (r'/ws', WsockHandler, dict(loop=loop)),
+        (r"/files/(.*\.html)", tornado.web.RedirectHandler, dict(url="/static-files/{0}")),
+        (r'/files(/.*)?', IndexHandler, handler_params),
+        (r"/static-files/(.*)", tornado.web.StaticFileHandler, dict(path="/files")),
+        (r'/', IndexHandler, handler_params),
     ]
     return handlers
 

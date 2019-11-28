@@ -1,3 +1,4 @@
+import os
 import io
 import json
 import logging
@@ -12,12 +13,12 @@ from concurrent.futures import ThreadPoolExecutor
 from tornado.ioloop import IOLoop
 from tornado.options import options
 from tornado.process import cpu_count
-from webssh.utils import (
+from webslit.utils import (
     is_valid_ip_address, is_valid_port, is_valid_hostname, to_bytes, to_str,
     to_int, to_ip_address, UnicodeType, is_ip_hostname, is_same_primary_domain,
-    is_valid_encoding
+    is_valid_encoding, to_data_size
 )
-from webssh.worker import Worker, recycle_worker, clients
+from webslit.worker import Worker, recycle_worker, clients
 
 try:
     from json.decoder import JSONDecodeError
@@ -41,64 +42,7 @@ class InvalidValueError(Exception):
     pass
 
 
-class SSHClient(paramiko.SSHClient):
-
-    def handler(self, title, instructions, prompt_list):
-        answers = []
-        for prompt_, _ in prompt_list:
-            prompt = prompt_.strip().lower()
-            if prompt.startswith('password'):
-                answers.append(self.password)
-            elif prompt.startswith('verification'):
-                answers.append(self.totp)
-            else:
-                raise ValueError('Unknown prompt: {}'.format(prompt_))
-        return answers
-
-    def auth_interactive(self, username, handler):
-        if not self.totp:
-            raise ValueError('Need a verification code for 2fa.')
-        self._transport.auth_interactive(username, handler)
-
-    def _auth(self, username, password, pkey, *args):
-        self.password = password
-        saved_exception = None
-        two_factor = False
-        allowed_types = set()
-        two_factor_types = {'keyboard-interactive', 'password'}
-
-        if pkey is not None:
-            logging.info('Trying publickey authentication')
-            try:
-                allowed_types = set(
-                    self._transport.auth_publickey(username, pkey)
-                )
-                two_factor = allowed_types & two_factor_types
-                if not two_factor:
-                    return
-            except paramiko.SSHException as e:
-                saved_exception = e
-
-        if two_factor:
-            logging.info('Trying publickey 2fa')
-            return self.auth_interactive(username, self.handler)
-
-        if password is not None:
-            logging.info('Trying password authentication')
-            try:
-                self._transport.auth_password(username, password)
-                return
-            except paramiko.SSHException as e:
-                saved_exception = e
-                allowed_types = set(getattr(e, 'allowed_types', []))
-                two_factor = allowed_types & two_factor_types
-
-        if two_factor:
-            logging.info('Trying password 2fa')
-            return self.auth_interactive(username, self.handler)
-
-        assert saved_exception is not None
-        raise saved_exception
+SSHClient = paramiko.SSHClient
 
 
 class PrivateKey(object):
@@ -399,7 +343,7 @@ class IndexHandler(MixinHandler, tornado.web.RequestHandler):
         if is_valid_encoding(encoding):
             return encoding
 
-    def get_default_encoding(self, ssh):
+    def get_encoding(self, ssh):
         commands = [
             '$SHELL -ilc "locale charmap"',
             '$SHELL -ic "locale charmap"'
@@ -408,21 +352,25 @@ class IndexHandler(MixinHandler, tornado.web.RequestHandler):
         for command in commands:
             _, stdout, _ = ssh.exec_command(command, get_pty=True)
             data = stdout.read()
-            logging.debug('{!r} => {!r}'.format(command, data))
+            logging.info(f'{command!r} => {data!r}')
             result = self.parse_encoding(data)
             if result:
+                logging.info(f"encoding selected: {result}")
                 return result
 
         logging.warn('Could not detect the default ecnoding.')
         return 'utf-8'
 
-    def ssh_connect(self, args):
+    def make_slit_command(self, filepath):
+        return f"slit --always-term {filepath}"
+
+    def connect_and_load(self, hostanme, port, filepath):
         ssh = self.ssh_client
-        dst_addr = args[:2]
+        dst_addr = (hostanme, port)
         logging.info('Connecting to {}:{}'.format(*dst_addr))
 
         try:
-            ssh.connect(*args, timeout=6)
+            ssh.connect("localhost", key_filename="/etc/ssh/ssh_host_ed25519_key", timeout=6)
         except socket.error:
             raise ValueError('Unable to connect to {}:{}'.format(*dst_addr))
         except paramiko.BadAuthenticationType:
@@ -434,9 +382,12 @@ class IndexHandler(MixinHandler, tornado.web.RequestHandler):
 
         term = self.get_argument('term', u'') or u'xterm'
         chan = ssh.invoke_shell(term=term)
+        cmd = f'{self.make_slit_command(filepath)} && exit 0\n'
+        logging.info(f">> {cmd}")
         chan.setblocking(0)
+        chan.send(cmd)
         worker = Worker(self.loop, ssh, chan, dst_addr)
-        worker.encoding = self.get_default_encoding(ssh)
+        worker.encoding = "utf-8"  # self.get_encoding(ssh)
         return worker
 
     def check_origin(self):
@@ -456,11 +407,67 @@ class IndexHandler(MixinHandler, tornado.web.RequestHandler):
     def head(self):
         pass
 
-    def get(self):
-        self.render('index.html', debug=self.debug)
+    class PathInfo():
+        def __init__(self, is_dir, name, path):
+            self.is_dir = is_dir
+            self.name = name + ("/" if is_dir else "")
+            self.path = path
+            self.size = None
+            self.order = (not self.is_dir, self.name)
+            self.badge = "html" if path.endswith(".html") else None
+
+        def __gt__(self, other):
+            return self.order > other.order
+
+        def get_size(self):
+            try:
+                if self.is_dir:
+                    self.size = "{} files".format(sum(1 for _ in os.scandir(self.path)))
+                else:
+                    self.size = to_data_size(os.stat(self.path).st_size)
+            except FileNotFoundError:
+                pass
+            except Exception:
+                logging.exception(f"Error reading {self.path}")
+
+    def get(self, path=None):
+        if not path:
+            path = "/"
+
+        auto_load = ""
+        entries = []
+        fullpath = os.path.join("/files", path.strip("/"))
+        if os.path.isfile(fullpath):
+            auto_load = path
+            title = fullpath + " (Loading...)"
+        elif os.path.isdir(fullpath):
+            title = fullpath
+            entries = sorted(
+                self.PathInfo(d.is_dir(follow_symlinks=False), d.name, d.path)
+                for d in os.scandir(fullpath))
+
+            if len(entries) < 1000:
+                for e in entries:
+                    e.get_size()
+
+            if path != "/":
+                entries[:0] = [self.PathInfo(True, "..", fullpath.rpartition("/")[0])]
+
+        return self.render(title=title, fullpath=fullpath, auto_load=auto_load, entries=entries)
+
+    def render(self, *, title, fullpath, auto_load, entries=[]):
+        return super().render(
+            'index.html', debug=self.debug, auto_load=auto_load,
+            entries=entries, fullpath=fullpath, title=title)
+
+    def validate_path(self, filepath):
+        fullpath = os.path.join("/files", filepath.strip("/"))
+        if not os.path.isfile(fullpath):
+            raise tornado.web.HTTPError(400, f"File does not exist: {filepath}")
+        return fullpath
 
     @tornado.gen.coroutine
-    def post(self):
+    def post(self, filepath=None):
         if self.debug and self.get_argument('error', u''):
             # for testing purpose only
             raise ValueError('Uncaught exception')
@@ -472,12 +479,9 @@ class IndexHandler(MixinHandler, tornado.web.RequestHandler):
 
         self.check_origin()
 
-        try:
-            args = self.get_args()
-        except InvalidValueError as exc:
-            raise tornado.web.HTTPError(400, str(exc))
+        filepath = self.validate_path(filepath or self.get_value('filepath'))
 
-        future = self.executor.submit(self.ssh_connect, args)
+        future = self.executor.submit(self.connect_and_load, "localhost", "22", filepath)
 
         try:
             worker = yield future

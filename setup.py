@@ -1,6 +1,6 @@
 import codecs
 from setuptools import setup
-from webssh._version import __version__ as version
+from webslit._version import __version__ as version
 
 
 with codecs.open('README.rst', encoding='utf-8') as f:
@@ -8,17 +8,17 @@ with codecs.open('README.rst', encoding='utf-8') as f:
 
 
 setup(
-    name='webssh',
+    name='webslit',
     version=version,
     description='Web based ssh client',
     long_description=long_description,
     author='Shengdun Hua',
     author_email='webmaster0115@gmail.com',
-    url='https://github.com/huashengdun/webssh',
-    packages=['webssh'],
+    url='https://github.com/huashengdun/webslit',
+    packages=['webslit'],
     entry_points='''
     [console_scripts]
-    wssh = webssh.main:main
+    wssh = webslit.main:main
     ''',
     license='MIT',
     include_package_data=True,

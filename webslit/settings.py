@@ -4,11 +4,11 @@ import ssl
 import sys
 
 from tornado.options import define
-from webssh.policy import (
+from webslit.policy import (
     load_host_keys, get_policy_class, check_policy_setting
 )
-from webssh.utils import to_ip_address, parse_origin_from_url
-from webssh._version import __version__
+from webslit.utils import to_ip_address, parse_origin_from_url
+from webslit._version import __version__
 
 
 def print_version(flag):
@@ -53,8 +53,8 @@ max_body_size = 1 * 1024 * 1024
 
 def get_app_settings(options):
     settings = dict(
-        template_path=os.path.join(base_dir, 'webssh', 'templates'),
-        static_path=os.path.join(base_dir, 'webssh', 'static'),
+        template_path=os.path.join(base_dir, 'webslit', 'templates'),
+        static_path=os.path.join(base_dir, 'webslit', 'static'),
         websocket_ping_interval=options.wpintvl,
         debug=options.debug,
         xsrf_cookies=options.xsrf,

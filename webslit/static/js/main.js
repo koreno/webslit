@@ -1,7 +1,7 @@
 /*jslint browser:true */
 
 var jQuery;
-var wssh = {};
+var wbs = {};
 
 
 (function() {
@@ -35,16 +35,30 @@ var wssh = {};
 }());
 
 
+(function($){
+  $.fn.scrollIfNecessary = function() {
+    var top_of_element = this.offset().top;
+    var bottom_of_element = this.offset().top + this.outerHeight();
+    var bottom_of_screen = $(window).scrollTop() + $(window).innerHeight();
+    var top_of_screen = $(window).scrollTop();
+    if (top_of_screen > top_of_element) {
+      this[0].scrollIntoView(true);
+    } else if (bottom_of_screen < bottom_of_element) {
+      this[0].scrollIntoView(false);
+    }
+  }
+})(jQuery);
+
+
 jQuery(function($){
   var status = $('#status'),
+      screen = $('#help-screen'),
       button = $('.btn-primary'),
       form_container = $('.form-container'),
       waiter = $('#waiter'),
       term_type = $('#term'),
       style = {},
-      default_title = 'WebSSH',
-      title_element = document.querySelector('title'),
-      form_id = '#connect',
+      form_id = '#load',
       debug = document.querySelector(form_id).noValidate,
       custom_font = document.fonts ? document.fonts.values().next().value : undefined,
       default_fonts,
@@ -64,89 +78,9 @@ jQuery(function($){
       hostname_tester = /((^\s*((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))\s*$)|(^\s*((([0-9A-Fa-f]{1,4}:){7}([0-9A-Fa-f]{1,4}|:))|(([0-9A-Fa-f]{1,4}:){6}(:[0-9A-Fa-f]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){5}(((:[0-9A-Fa-f]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){4}(((:[0-9A-Fa-f]{1,4}){1,3})|((:[0-9A-Fa-f]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){3}(((:[0-9A-Fa-f]{1,4}){1,4})|((:[0-9A-Fa-f]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){2}(((:[0-9A-Fa-f]{1,4}){1,5})|((:[0-9A-Fa-f]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){1}(((:[0-9A-Fa-f]{1,4}){1,6})|((:[0-9A-Fa-f]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9A-Fa-f]{1,4}){1,7})|((:[0-9A-Fa-f]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))(%.+)?\s*$))|(^\s*((?=.{1,255}$)(?=.*[A-Za-z].*)[0-9A-Za-z](?:(?:[0-9A-Za-z]|\b-){0,61}[0-9A-Za-z])?(?:\.[0-9A-Za-z](?:(?:[0-9A-Za-z]|\b-){0,61}[0-9A-Za-z])?)*)\s*$)/;
 
 
-  function store_items(names, data) {
-    var i, name, value;
-
-    for (i = 0; i < names.length; i++) {
-      name = names[i];
-      value = data.get(name);
-      if (value){
-        window.localStorage.setItem(name, value);
-      }
-    }
-  }
-
-
-  function restore_items(names) {
-    var i, name, value;
-
-    for (i=0; i < names.length; i++) {
-      name = names[i];
-      value = window.localStorage.getItem(name);
-      if (value) {
-        $('#'+name).val(value);
-      }
-    }
-  }
-
-
-  function populate_form(data) {
-    var names = form_keys.concat(['passphrase']),
-        i, name;
-
-    for (i=0; i < names.length; i++) {
-      name = names[i];
-      $('#'+name).val(data.get(name));
-    }
-  }
-
-
   function get_object_length(object) {
     return Object.keys(object).length;
   }
-
-
-  function decode_uri(uri) {
-    try {
-      return decodeURI(uri);
-    } catch(e) {
-      console.error(e);
-    }
-    return '';
-  }
-
-
-  function decode_password(encoded) {
-    try {
-      return window.atob(encoded);
-    } catch (e) {
-       console.error(e);
-    }
-    return null;
-  }
-
-
-  function parse_url_data(string, form_keys, opts_keys, form_map, opts_map) {
-    var i, pair, key, val,
-        arr = string.split('&');
-
-    for (i = 0; i < arr.length; i++) {
-      pair = arr[i].split('=');
-      key = pair[0].trim().toLowerCase();
-      val = pair[1] && pair[1].trim();
-
-      if (form_keys.indexOf(key) >= 0) {
-        form_map[key] = val;
-      } else if (opts_keys.indexOf(key) >=0) {
-        opts_map[key] = val;
-      }
-    }
-
-    if (form_map.password) {
-      form_map.password = decode_password(form_map.password);
-    }
-  }
-
 
   function parse_xterm_style() {
     var text = $('.xterm-helpers style').text();
@@ -307,12 +241,12 @@ jQuery(function($){
   }
 
 
-  function reset_wssh() {
+  function reset_wbs() {
     var name;
 
-    for (name in wssh) {
-      if (wssh.hasOwnProperty(name) && name !== 'connect') {
-        delete wssh[name];
+    for (name in wbs) {
+      if (wbs.hasOwnProperty(name) && name !== 'connect') {
+        delete wbs[name];
       }
     }
   }
@@ -336,6 +270,40 @@ jQuery(function($){
     }
   }
 
+  function hide_help(e) {
+    if (e.type === "keyup" && e.key !== "Escape") {
+        return;
+    }
+    screen.hide();
+    $(document).unbind('keypress', hide_help);
+    $(document).unbind('keyup', hide_help);
+    if (term) {
+      term.focus();
+    }
+  }
+
+  function show_help() {
+    if (wbs.term) {
+      $("#webslit-help").hide();
+      $("#slit-help").show();
+    } else {
+      $("#slit-help").hide();
+      $("#webslit-help").show();
+    }
+    screen.show();
+    screen.focus();
+
+    screen.click(hide_help);
+    $(document).keypress(hide_help);
+    $(document).keyup(hide_help);
+
+  }
+
+  $("#toggle-help-view").click(function(e) {
+      $("#webslit-help").toggle();
+      $("#slit-help").toggle();
+      e.stopPropagation();
+  });
 
   function ajax_complete_callback(resp) {
     button.prop('disabled', false);
@@ -353,7 +321,7 @@ jQuery(function($){
       return;
     }
 
-    var ws_url = window.location.href.split(/\?|#/, 1)[0].replace('http', 'ws'),
+    var ws_url = "ws://" + window.location.host,
         join = (ws_url[ws_url.length-1] === '/' ? '' : '/'),
         url = ws_url + join + 'ws?id=' + msg.id,
         sock = new window.WebSocket(url),
@@ -367,12 +335,14 @@ jQuery(function($){
           }
         });
 
+    wbs.term = term;
+
     console.log(url);
     if (!msg.encoding) {
       console.log('Unable to detect the default encoding of your server');
       msg.encoding = encoding;
     } else {
-      console.log('The deault encoding of your server is ' + msg.encoding);
+      console.log('The default encoding of your server is ' + msg.encoding);
     }
 
     function term_write(text) {
@@ -408,24 +378,18 @@ jQuery(function($){
       }
     }
 
-    wssh.set_encoding = set_encoding;
+    wbs.set_encoding = set_encoding;
 
-    if (url_opts_data.encoding) {
-      if (set_encoding(url_opts_data.encoding) === false) {
-        set_encoding(msg.encoding);
-      }
-    } else {
-      set_encoding(msg.encoding);
-    }
+    set_encoding(msg.encoding);
 
 
-    wssh.geometry = function() {
+    wbs.geometry = function() {
       // for console use
       var geometry = current_geometry(term);
       console.log('Current window geometry: ' + JSON.stringify(geometry));
     };
 
-    wssh.send = function(data) {
+    wbs.send = function(data) {
       // for console use
       if (!sock) {
         console.log('Websocket was already closed');
@@ -446,7 +410,7 @@ jQuery(function($){
       }
     };
 
-    wssh.reset_encoding = function() {
+    wbs.reset_encoding = function() {
       // for console use
       if (encoding === msg.encoding) {
         console.log('Already reset to ' + msg.encoding);
@@ -455,7 +419,7 @@ jQuery(function($){
       }
     };
 
-    wssh.resize = function(cols, rows) {
+    wbs.resize = function(cols, rows) {
       // for console use
       if (term === undefined) {
         console.log('Terminal was already destroryed');
@@ -478,15 +442,15 @@ jQuery(function($){
       }
     };
 
-    wssh.set_bgcolor = function(color) {
+    wbs.set_bgcolor = function(color) {
       set_backgound_color(term, color);
     };
 
-    wssh.custom_font = function() {
+    wbs.custom_font = function() {
       update_font_family(term);
     };
 
-    wssh.default_font = function() {
+    wbs.default_font = function() {
       reset_font_family(term);
     };
 
@@ -498,9 +462,37 @@ jQuery(function($){
       }
     };
 
+    term.attachCustomKeyEventHandler(function(e) {
+      if (false) {
+      }
+      else if (e.ctrlKey) {
+        if (false) {}
+        else if (e.key == "c") {return false;}
+        else if (e.key == "v") {return false;}
+        else if (e.key == "insert") {return false;}
+      }
+      else if (e.shiftKey) {
+        if (false) {}
+        else if (e.key == "insert") {return false;}
+      }
+      else if (e.altKey) {
+        if (false) {}
+        else if (e.key == "d") {return false;}
+        else if (e.key == "ArrowLeft") {return false;}
+        else if (e.key == "ArrowRight") {return false;}
+        else if (e.key == "ArrowUp") {
+          window.location.href = window.location.href.split('/').slice(0, -1).join('/');
+          return false;
+        }
+      }
+    });
+
     term.on('data', function(data) {
-      // console.log(data);
-      sock.send(JSON.stringify({'data': data}));
+      if (data == "\u001BOP") {
+        show_help();
+      } else {
+        sock.send(JSON.stringify({'data': data}));
+      }
     });
 
     sock.onopen = function() {
@@ -509,7 +501,6 @@ jQuery(function($){
       update_font_family(term);
       term.focus();
       state = CONNECTED;
-      title_element.text = url_opts_data.title || default_title;
       if (url_opts_data.command) {
         setTimeout(function () {
           sock.send(JSON.stringify({'data': url_opts_data.command+'\r'}));
@@ -529,11 +520,16 @@ jQuery(function($){
       term.destroy();
       term = undefined;
       sock = undefined;
-      reset_wssh();
-      log_status(e.reason, true);
+      reset_wbs();
+      if (e.reason) {
+        log_status(e.reason, true);
+      } else if (e.goto) {
+        window.location.href = e.goto;
+      } else {
+        window.location.href = window.location.href.split('/').slice(0, -1).join('/')
+      }
+
       state = DISCONNECTED;
-      default_title = 'WebSSH';
-      title_element.text = default_title;
     };
 
     $(window).resize(function(){
@@ -541,6 +537,13 @@ jQuery(function($){
         resize_terminal(term);
       }
     });
+
+    document.querySelector("title").text += " (Hit 'F1' for Help)";
+    h = window.localStorage.getItem("got-help") || false;
+    if (!h) {
+      setTimeout(show_help, 500);
+      window.localStorage.setItem("got-help", true);
+    }
   }
 
 
@@ -561,7 +564,7 @@ jQuery(function($){
 
   function clean_data(data) {
     var i, attr, val;
-    var attrs = form_keys.concat(['privatekey', 'passphrase']);
+    var attrs = form_keys.concat([]);
 
     for (i = 0; i < attrs.length; i++) {
       attr = attrs[i];
@@ -576,10 +579,7 @@ jQuery(function($){
   function validate_form_data(data) {
     clean_data(data);
 
-    var hostname = data.get('hostname'),
-        port = data.get('port'),
-        username = data.get('username'),
-        pk = data.get('privatekey'),
+    var filepath = data.get('filepath'),
         result = {
           valid: false,
           data: data,
@@ -587,75 +587,23 @@ jQuery(function($){
         },
         errors = [], size;
 
-    if (!hostname) {
-      errors.push('Value of hostname is required.');
-    } else {
-      if (!hostname_tester.test(hostname)) {
-         errors.push('Invalid hostname: ' + hostname);
-      }
-    }
-
-    if (!port) {
-      port = 22;
-    } else {
-      if (!(port > 0 && port < 65535)) {
-        errors.push('Invalid port: ' + port);
-      }
-    }
-
-    if (!username) {
-      errors.push('Value of username is required.');
-    }
-
-    if (pk) {
-      size = pk.size || pk.length;
-      if (size > key_max_size) {
-        errors.push('Invalid private key: ' + pk.name || '');
-      }
-    }
-
     if (!errors.length || debug) {
       result.valid = true;
-      result.title = username + '@' + hostname + ':'  + port;
+      result.title = 'WebSlit: ' + filepath;
     }
     result.errors = errors;
 
     return result;
   }
 
-  // Fix empty input file ajax submission error for safari 11.x
-  function disable_file_inputs(inputs) {
-    var i, input;
 
-    for (i = 0; i < inputs.length; i++) {
-      input = inputs[i];
-      if (input.files.length === 0) {
-        input.setAttribute('disabled', '');
-      }
-    }
-  }
-
-
-  function enable_file_inputs(inputs) {
-    var i;
-
-    for (i = 0; i < inputs.length; i++) {
-      inputs[i].removeAttribute('disabled');
-    }
-  }
-
-
-  function connect_without_options() {
+  function connect_from_form() {
     // use data from the form
     var form = document.querySelector(form_id),
-        inputs = form.querySelectorAll('input[type="file"]'),
         url = form.action,
-        data, pk;
+        data;
 
-    disable_file_inputs(inputs);
     data = new FormData(form);
-    pk = data.get('privatekey');
-    enable_file_inputs(inputs);
 
     function ajax_post() {
       status.text('');
@@ -678,17 +626,7 @@ jQuery(function($){
       return;
     }
 
-    if (pk && pk.size && !debug) {
-      read_file_as_text(pk, function(text) {
-        if (text === undefined) {
-            log_status('Invalid private key: ' + pk.name);
-        } else {
-          ajax_post();
-        }
-      });
-    } else {
-      ajax_post();
-    }
+    ajax_post();
 
     return result;
   }
@@ -736,7 +674,7 @@ jQuery(function($){
     }
 
     if (hostname === undefined) {
-      result = connect_without_options();
+      result = connect_from_form();
     } else {
       if (typeof hostname === 'string') {
         opts = {
@@ -757,15 +695,13 @@ jQuery(function($){
 
     if (result) {
       state = CONNECTING;
-      default_title = result.title;
       if (hostname) {
         validated_form_data = result.data;
       }
-      store_items(fields, result.data);
     }
   }
 
-  wssh.connect = connect;
+  wbs.connect = connect;
 
   $(form_id).submit(function(event){
     event.preventDefault();
@@ -791,7 +727,7 @@ jQuery(function($){
 
     try {
       event_origin = event.origin;
-      wssh[prop].apply(wssh, args);
+      wbs[prop].apply(wbs, args);
     } finally {
       event_origin = undefined;
     }
@@ -813,28 +749,68 @@ jQuery(function($){
     );
   }
 
-
-  parse_url_data(
-    decode_uri(window.location.search.substring(1)) + '&' + decode_uri(window.location.hash.substring(1)),
-    form_keys, opts_keys, url_form_data, url_opts_data
-  );
-  // console.log(url_form_data);
-  // console.log(url_opts_data);
-
-  if (url_opts_data.term) {
-    term_type.val(url_opts_data.term);
-  }
-
-  if (url_form_data.password === null) {
-    log_status('Password via url must be encoded in base64.');
+  if (auto_load) {
+    $(form_id).submit();
   } else {
-    if (get_object_length(url_form_data)) {
-      waiter.show();
-      connect(url_form_data);
-    } else {
-      restore_items(fields);
-      form_container.show();
+    function set_active(idx) {
+      idx = Math.min(menu_items.length-1, Math.max(0, idx));
+      item = $(".explorer-container a[href='"+menu_items[idx]+"']");
+      $(".explorer-container a.active").removeClass("active");
+      item.addClass('active');
+      item.scrollIfNecessary();
+      moved = (active != idx);
+      active = idx;
+      window.localStorage.setItem(storageKey, menu_items[idx]);
+      return moved;
     }
+
+    var storageKey = window.location.pathname + "/last-active";
+    var menu_items = $(".explorer-container a").map(function(i, e) { return $(e).attr("href"); }).get();
+    var last_active = window.localStorage.getItem(storageKey);
+    var active = Math.max(0, menu_items.indexOf(last_active));
+    set_active(active);
+
+    $(".explorer-container a").on('mouseenter', function(e) {
+      var idx = menu_items.indexOf($(e.target).attr("href"));
+      set_active(idx);
+    });
+
+    $(document).on('keydown', function(e) {
+      if (false) {
+      } else if (e.key == "PageUp") {
+          if (set_active(active - 10)) {
+            e.preventDefault();
+          }
+      } else if (e.key == "PageDown") {
+          if (set_active(active + 10)) {
+            e.preventDefault();
+          }
+      } else if (e.key == "End") {
+          if (set_active(menu_items.length-1)) {
+            e.preventDefault();
+          }
+      } else if(e.key == "Home"){
+          if (set_active(0)) {
+            e.preventDefault();
+          }
+      } else if(e.key == "ArrowUp"){
+          if (set_active(active - 1)) {
+            e.preventDefault();
+          }
+      } else if (e.key == "ArrowDown") {
+          if (set_active(active + 1)) {
+            e.preventDefault();
+          }
+      } else if (e.key == "F1") {
+          show_help();
+          e.preventDefault();
+      } else if (e.key == "Enter") {
+          var selected_item = $('.explorer-container a.active');
+          window.location.href = selected_item.attr("href")
+      }
+    });
+
+
   }
 
 });

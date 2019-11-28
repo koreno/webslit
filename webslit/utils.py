@@ -1,3 +1,6 @@
+import os
+import fcntl
+import locale
 import ipaddress
 import re
 
@@ -143,3 +146,64 @@ def parse_origin_from_url(url):
         netloc = parsed.netloc
 
     return '{}://{}'.format(scheme, netloc)
+
+
+UNIT_NAMES = {unit_name: 1024 ** i for i, unit_name in enumerate(['byte', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'XiB'])}
+SORTED_UNITS = sorted(UNIT_NAMES.values(), reverse=True)
+UNITS = {v: k for k, v in UNIT_NAMES.items()}
+
+
+def to_data_size(size):
+    if size == 0:
+        return '0 bytes'
+
+    if size in UNIT_NAMES:
+        return UNIT_NAMES[size]
+
+    for unit in SORTED_UNITS:
+        name = UNITS[unit]
+        many = 'bytes' if name == 'byte' else name
+        if size % unit == 0:
+            return '%d %s' % (size / unit, many)
+        if size >= unit or (size >= unit / 10 and size * 10 % unit == 0):
+            return '%.1f %s' % (size / unit, many)
+
+
+class NonBlockingReader():
+
+    def __init__(self, f, enc='utf-8', block_size=8192):
+        fd = f.fileno()
+        fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+        fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+        self.fd = fd
+        self.enc = enc or locale.getpreferredencoding(False)
+        self.buf = bytearray()
+        self.block_size = block_size
+
+    def get_last_line(self):
+        line = None
+        for line in self:
+            pass
+        return line
+
+    def __iter__(self):
+        while True:
+            try:
+                block = os.read(self.fd, self.block_size)
+            except BlockingIOError:
+                return
+
+            if not block:
+                if self.buf:
+                    yield self.buf.decode(self.enc).rstrip()
+                    self.buf.clear()
+                return
+
+            block = block.replace(b'\r', b'\n')
+            while block:
+                b, _, block = block.partition(b'\n')
+                self.buf.extend(b)
+                line = self.buf.decode(self.enc).rstrip()
+                if line:
+                    yield line
+                self.buf.clear()

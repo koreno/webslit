@@ -1,4 +1,4 @@
-from webssh.main import main
+from webslit.main import main
 
 
 if __name__ == '__main__':

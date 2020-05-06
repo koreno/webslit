@@ -1,4 +1,4 @@
-from webslit._version import __version__, __version_info__
+with open("version.info") as f:
+    __version__ = f.read().strip()
 
-
-__author__ = 'Shengdun Hua <webmaster0115@gmail.com>'
+MAJOR, MINOR, COMMIT = __version__.split(".")

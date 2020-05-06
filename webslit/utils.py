@@ -3,6 +3,8 @@ import fcntl
 import locale
 import ipaddress
 import re
+import logging
+from threading import Event
 
 try:
     from types import UnicodeType
@@ -145,7 +147,7 @@ def parse_origin_from_url(url):
     else:
         netloc = parsed.netloc
 
-    return '{}://{}'.format(scheme, netloc)
+    return f'{scheme}://{netloc}'
 
 
 UNIT_NAMES = {unit_name: 1024 ** i for i, unit_name in enumerate(['byte', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'XiB'])}
@@ -207,3 +209,45 @@ class NonBlockingReader():
                 if line:
                     yield line
                 self.buf.clear()
+
+
+class TasksEvent():
+
+    def __init__(self, cls=Event):
+        self._cls = cls
+        self.clear()
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__} tasks={self._counter}>"
+
+    def clear(self):
+        self._event = self._cls()
+        self._counter = 0
+
+    def add(self):
+        self._event.clear()
+        self._counter += 1
+        logging.info(f"{self}")
+
+    def set(self):
+        self._counter -= 1
+        logging.info(f"{self}")
+        if self._counter == 0:
+            self._event.set()
+
+    done = set
+
+    def wait(self, *args, **kwargs):
+        return self._event.wait(*args, **kwargs)
+
+    def submit(self, executor, func, *args, **kwargs):
+        self.add()
+        executor.submit(func, *args, **kwargs)
+
+    def register(self, func):
+        def inner(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            finally:
+                self.done()
+        return inner

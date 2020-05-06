@@ -1,148 +1,168 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="fullheight">
   <head>
     <meta charset="UTF-8">
-    <title> WebSlit: {{ fullpath }}</title>
+    <title>WebSlit - {{ thishost }}</title>
     <link href="/static/img/favicon.png" rel="icon" type="image/png">
     <link href="/static/css/bootstrap.min.css" rel="stylesheet" type="text/css"/>
     <link href="/static/css/xterm.min.css" rel="stylesheet" type="text/css"/>
     <link href="/static/css/fullscreen.min.css" rel="stylesheet" type="text/css"/>
-    <style>
-      .row {
-        margin-top: 15px;
-        margin-bottom: 10px;
-      }
-
-      .container {
-        margin-top: 20px;
-      }
-
-      .btn {
-        margin-top: 15px;
-      }
-
-      .btn-danger {
-        margin-left: 5px;
-      }
-
-      html {
-        position: relative;
-        min-height: 100%;
-      }
-      body {
-        margin-bottom: 30px; /* Margin bottom by footer height */
-      }
-      .footer {
-        position: absolute;
-        bottom: 0;
-        width: 100%;
-        height: 60px; /* Set the fixed height of the footer here */
-        background-color: #202020;
-      }
-    </style>
+    <link href="/static/css/webslit.css?v={{ release }}" rel="stylesheet" type="text/css"/>
   </head>
-  <body>
-    <div class="container explorer-container">
-      <h3>{{ title }}</h3>
-      <div class="list-group">
-          {% for p in entries %}
-            <a href="{{ escape(p.path) }}" class="list-group-item list-group-item-action">
-              {% if p.is_dir %}<strong>{% end %}
-                {{ p.name }}
-              {% if p.is_dir %}</strong>{% end %}
-              {% if p.badge is not None %}
-                <span class="badge badge-info">
-                  {{ p.badge }}
-                </span>
-              {% end %}
-              {% if p.size is not None %}
-                <span class="label float-right">
-                  {% if p.is_dir %}<strong>{% end %}
-                    {{ p.size }}
-                  {% if p.is_dir %}</strong>{% end %}
-                </span>
-              {% end %}
-            </a>
-          {% end %}
+  <body class="fullheight">
+
+    <!-- Explorer -->
+    <div id="vue-explorer" class="container-fluid fullheight">
+      <div class="row fullheight transparent">
+        <main role="main" class="mx-auto col-lg-8 px-4 fullheight">
+          <div class="row">
+            <div class="col-md">
+              <nav>
+                <ol class="breadcrumb">
+                  <li v-for="b in breadcrumbs" class="breadcrumb-item">
+                    <a :href="'#'+b.path">{{! b.part }}</a>
+                  </li>
+                  <li class="breadcrumb-item active">{{! breadcrumbs_tail.part }}</li>
+                  <li class="breadcrumb-item-input">
+                    <input class="form-control" type="text" id="filter"
+                      :placeholder="'filter by ' + (use_regex ? 'regex' : 'comma-separated substring') + ' (<Ctrl-/> to toggle)'"
+                      v-model="requested_filter"
+                      >
+                  </li>
+                  <li class="breadcrumb-item">
+                    <span>(<span v-if="filter.length">{{! filtered_entries.length }} out of </span>{{! entries.length }} entries<span v-if="loading">...</span>)</span>
+                  </li>
+                  <li v-if="loading" style="right: 2rem; position: absolute;">
+                    <div class="spinner-border text-muted ml-auto" role="status" aria-hidden="true"
+                        style="height: 24px; width: 24px;"></div>
+                  </li>
+                </ol>
+              </nav>
+            </div>
+          </div>
+          <div class="explorer-container row" :style="`overflow-y:${nav_active?'auto':'hidden'}`">
+            <div class="col">
+            <div class="list-group">
+              <template v-for="p in filtered_entries" v-if="p.visible">
+                <a tabindex="-1"
+                    :href="(p.static ? '' : '#') + p.path"
+                    :id="'entry-' + p.index"
+                    :key="p.index"
+                    class="list-group-item list-group-item-action py-2"
+                    :class="{ active: (p.index == active && nav_active), 'dir-entry': p.is_dir, symlink: p.is_symlink, unreachable: p.is_unreachable, magic: p.is_magic }"
+                    @focus="set_active(p.index)">
+                  <button class="download" v-if="p.static_path" @click.prevent="download(p.index)"></button>
+                  <label v-if="p.selectable" class="check-container">
+                    <input type="checkbox" v-model="p.selected">
+                    <span class="checkmark"></span>
+                  </label>
+                  <span class="text-muted">{{! p.base }}/</span>
+                  <span class="label">{{! p.name }}</span>
+                    <span v-for="badge in p.badges" class="badge badge-secondary">{{! badge }}</span>
+                    <span v-if="p.info" class="label float-right">
+                      {{! p.info }}
+                    </span>
+                </a>
+              </template>
+
+              <div v-if="loading" tabindex="-1" class="list-group-item list-group-item-action py-2">
+                <span class="label"><i><strong>(Loading...)</strong></i></span>
+              </div>
+              <div v-if="error" tabindex="-1" class="list-group-item list-group-item-action py-2">
+                <span class="label text-danger"><i><strong>{{! error }}</strong></i></span>
+              </div>
+
+            </div>
+          </div></div>
+          <div class="selected-container row"><div class="col">
+            <div class="list-group" v-bind:class="{ active: (all_selected_entries.length > 1) }">
+              <button class="btn btn-success" id="ziplog"
+                  @click="load_files()"
+              >ZipLog (Alt+Enter)</button>
+              <template v-for="(p, index) in all_selected_entries">
+                <a :data="p.path" @click="deselect(index)" tabindex="-1"
+                    class="list-group-item list-group-item-action py-2"
+                >
+                  <span class="text-muted">{{! p.base }}/</span>
+                  <span class="label">{{! p.name }}</span>
+                    <span v-for="badge in p.badges" class="badge badge-secondary">
+                      {{! badge }}
+                    </span>
+                    <span v-if="p.info" class="label float-right">
+                      {{! p.info }}
+                    </span>
+                </a>
+              </template>
+
+            </div>
+          </div></div>
+          <div class="container">
+            <div id="status" style="color: red;"></div>
+          </div>
+        </main>
       </div>
     </div>
 
-    <div class="container form-container" style="display: none">
-      <form id="load" action="" method="post" enctype="multipart/form-data"{% if debug %} novalidate{% end %}>
-        <label for="filepath">Path</label>
-        <input class="form-control" type="text" id="filepath" name="filepath" value="" required>
-        <input type="hidden" id="term" name="term" value="xterm-256color">
-        {% module xsrf_form_html() %}
-        <button type="submit" class="btn btn-primary">Load</button>
-      </form>
-    </div>
+    <!-- Terminal -->
+    <div id="terminal"></div>
 
-    <div class="container">
-      <div id="status" style="color: red;"></div>
-      <div id="terminal"></div>
-    </div>
-
-    <div id="help-screen" style="display: none;
-          background: rgb(0, 0, 0, 0.6);
-          width: 100%; height: 100%;
-          font-size: 1rem;
-          backdrop-filter: blur(2px);
-          position: absolute; overflow-y: scroll;
-          top: 0; left: 0; z-index: 500;">
-
+    <!-- Help -->
+    <div id="help-screen">
       <div class="cover-container d-flex w-75 h-100 p-3 mx-auto flex-column">
         <header class="masthead mb-auto"></header>
         <main role="main" class="inner cover">
-          <div id="slit-help" class="container">
+          <div id="slit-help" class="container" data-version="v1">
             <div class="row">
               <div class="col-sm">
-                <h3>Key Bindings:</h3>
-                <h5>Navigation</h5>
+                <h4>Key Bindings:</h4>
+                <h6>Navigation</h6>
                 <ul>
-                <li><code>PageDown</code>, <code>f</code>, <code>Space</code> - Page Down</li>
-                <li><code>PageUp</code>, <code>b</code> - Page Up</li>
-                <li><code>Home</code>, <code>g</code> - Go to first line</li>
-                <li><code>End</code>, <code>G</code> - Go to last line</li>
-                <li><code>Arrow down</code>, <code>j</code> - Move one line down</li>
-                <li><code>Arrow up</code>, <code>k</code> - Move one line up</li>
-                <li><code>Arrow left</code>, <code>Arrow right</code> - Scroll horizontally</li>
-                <li><code>&lt;</code>, <code>&gt;</code> - Precise horizontal scrolling, 1 character a time</li>
+                  <li><code>PageDown</code>, <code>f</code>, <code>Space</code> - Page Down</li>
+                  <li><code>PageUp</code>, <code>b</code> - Page Up</li>
+                  <li><code>Home</code>, <code>g</code> - Go to first line</li>
+                  <li><code>End</code>, <code>G</code> - Go to last line</li>
+                  <li><code>Arrow down</code>, <code>j</code> - Move one line down</li>
+                  <li><code>Arrow up</code>, <code>k</code> - Move one line up</li>
+                  <li><code>Arrow left</code>, <code>Arrow right</code> - Scroll horizontally</li>
+                  <li><code>&lt;</code>, <code>&gt;</code> - script horizontally, 1 character a time</li>
                 </ul>
-                <h5>Search/Filters</h5>
+                <h6>Search/Filters</h6>
                 <ul>
-                <li><code>/</code> - Forward search</li>
-                <li><code>?</code> - Backsearch</li>
-                <li><code>n</code> - Next match</li>
-                <li><code>N</code> - Previous match</li>
-                <li><code>CTRL-/</code> - Switch between <code>CaseSensitive</code> search and <code>RegEx</code></li>
-                <li><code>&amp;</code> - Filter: intersect</li>
-                <li><code>-</code> - Filter: exclude</li>
-                <li><code>+</code> - Filter: include</li>
-                <li><code>=</code> - Remove all filters</li>
-                <li><code>U</code> - Removes last filter</li>
-                <li><code>C</code> - Switches off/on all filters.
-                <br/> Useful for getting context of current line, which is the top-most line on the screen</li>
+                  <li><code>/</code> - Forward search</li>
+                  <li><code>?</code> - Backsearch</li>
+                  <li><code>~</code> - Highlight search</li>
+                  <li><code>n</code> - Next match</li>
+                  <li><code>Shift+n</code> - Previous match</li>
+                  <li><code>Ctrl+r</code> - Switch between <code>CaseSensitive</code> search and <code>RegEx</code></li>
+                  <li><code>&amp;</code> - Filter: intersect</li>
+                  <li><code>-</code> - Filter: exclude</li>
+                  <li><code>+</code> - Filter: include</li>
+                  <li><code>=</code> - Remove all filters</li>
+                  <li><code>Shift+u</code> - Removes last filter</li>
+                  <li><code>Shift+c</code> - Switches off/on all filters.
+                    <br/>Useful for getting context of current line, which is the top-most line on the screen</li>
                 </ul>
-                <h5>Misc</h5>
+                <h6>Misc</h6>
                 <ul>
-                <li><code>K</code> - Keep N first characters(usually containing timestamp) when navigating horizontally<br>
-                Up/Down arrows during K-mode will adjust N of kept chars</li>
-                <li><code>W</code> - Wrap/Unwrap lines</li>
-                <li><code>CTRL-s</code> - Save filtered version to file (will prompt for filepath)</li>
-                <li><code>CTRL-c</code> - Copy selection (use mouse to select text)</li>
-                <li><code>q</code> - quit</li>
+                  <li><code>`</code> - Highlight toggle on the top line</li>
+                  <li><code>Ctrl+Insert</code> - Copy selection (use mouse to select text)</li>
+                  <li><code>Shift+w</code> - Wrap/Unwrap lines</li>
+                  <li><code>Shift+k</code> - Keep N first characters(usually containing timestamp) when navigating horizontally
+                    <br/>Up/Down arrows during K-mode will adjust N of kept chars</li>
+                  <li><code>Ctrl+s</code> - Save filtered version to file (will prompt for filepath)</li>
+                  <li><code>q</code> - quit</li>
                 </ul>
               </div>
               <div class="col-sm">
-                <h3>Search Modes</h3>
+                <h4>Search Modes</h4>
                 <p>Both search and filters currently support the <code>CaseSensitive</code> and <code>RegEx</code> modes.
-                To switch between modes press <code>CTRL-/</code> in search/filter input.</p>
+                To switch between modes press <code>Ctrl+r</code> in search/filter input.</p>
                 <p><strong>Note:</strong> For case-insensitive search in <strong>RegEx</strong> use <code>(?i)cOnDiTiOn</code></p>
-                <h3>Filters</h3>
+                <h4>Filters</h4>
                 <ul>
-                <li>Intersect (<code>&amp;</code>): Keep only lines that match the pattern</li>
-                <li>Exclude (<code>-</code>): Discard lines that match the pattern</li>
-                <li>Include (<code>+</code>): Restores lines that match pattern, even if they were excluded by previous filters</li>
+                  <li>Intersect (<code>&amp;</code>): Keep only lines that match the pattern</li>
+                  <li>Exclude (<code>-</code>): Discard lines that match the pattern</li>
+                  <li>Include (<code>+</code>): Restores lines that match pattern, even if they were excluded by previous filters</li>
                 </ul>
                 <p/>Filters are aggregated - Each filter acts on the results produced by the filters that came before.
                 Chaining of filters gives ability to filter out all the 'noise' dynamically, and get to what you're actually looking for.</p>
@@ -162,22 +182,99 @@
               </div>
             </div>
           </div>
-          <div id="webslit-help" class="container">
-            <h5><a href="https://github.com/koreno/webslit">WebSlit</a> is a log file explorer and viewer that
-              uses <a href="https://github.com/tigrawap/slit">slit</a> for viewing files efficiently</h5>
-            <h3>Key Bindings:</h3>
-            <ul>
-            <li>Use the arrow keys, Page-Up/Down, Home/End to navigate</li>
-            <li>Hit <code>Enter</code> on files to load them in <strong>Slit</strong></li>
-            <li><strong>HTML</strong> files will be open statically</li>
-            </ul>
+          <div id="webslit-help" class="container" data-version="v3">
+
+            <div id="webslit-help-carousel" class="carousel slide" data-ride="carousel" data-interval="25000">
+              <ol class="carousel-indicators">
+                <li data-target="#webslit-help-carousel" data-slide-to="0" class="active"></li>
+                <li data-target="#webslit-help-carousel" data-slide-to="1"></li>
+                <li data-target="#webslit-help-carousel" data-slide-to="2"></li>
+                <li data-target="#webslit-help-carousel" data-slide-to="3"></li>
+                <li data-target="#webslit-help-carousel" data-slide-to="4"></li>
+              </ol>
+              <div class="carousel-inner">
+                <div class="carousel-item active">
+                  <p style="font-size: 1.4em">
+                    <a href="https://github.com/koreno/webslit">WebSlit</a> is a remote file explorer for viewing files <em>efficiently</em>.
+                  </p>
+                  <p>
+                    <strong>WebSlit</strong> uses an embedded, browser-side <a href="http://xtermjs.org/">xterm</a> emulator to render a terminal
+                    session that is running on the remote server,<br/> reducing the amount of traffic over the network.
+                  </p>
+                  <p>
+                    On the remote server, <strong>WebSlit</strong> primarily uses <a href="https://github.com/tigrawap/slit">slit</a>, an advanced text-file pager.
+                  </p>
+                  <p>Flip through the slides using the arrow keys, for more information on <strong>WebSlit</strong>'s various features</p>
+                </div>
+                <div class="carousel-item">
+                  <h3>Basics</h3>
+                  <h5>Let go of the Mouse!</h5>
+                  <ul>
+                    <li>Use the <code>Arrow Keys, Page-Up/Down, Home/End</code> to move within the entry list</li>
+                    <li>Type in filename substrings to filter the entries</li>
+                    <li>Hit <code>Escape</code> to clear the filter</li>
+                    <li>With an empty filter-box, use <code>Backspace</code> to go to the parent directory</li>
+                    <li>Hit <code>Enter</code> on files to load them in <strong>Slit</strong></li>
+                    <li>Once in Slit, hit <code>F1</code> again for more keyboard shortcuts</li>
+                    <li>Hit <code>q</code> to come back to the file explorer</li>
+                    <li>Use the <button type="button" class="download"></button> button on the right to download the file</li>
+                  </ul>
+                </div>
+                <div class="carousel-item">
+                  <h3>Special Files and Directories</h3>
+                  <p>Some files are special get handled differently:</p>
+                  <ul>
+                    <li>{% for i, typ in enumerate(static_files) %}{% if i > 0 %},{% end %}
+                      <span class="badge badge-secondary">{{ typ }}</span>{% end %} -
+                      these files will be open statically</li>
+                    <li>{% for i, typ in enumerate(special_files) %}{% if i > 0 %},{% end %}
+                      <span class="badge badge-secondary">{{ typ }}</span>{% end %} -
+                      are automatically decompressed and parsed before going into <strong>Slit</strong></li>
+                  </ul>
+                  <p>There are also <span class="magic">virtual entries</span>, marked by a <span class="magic">halo</span>
+                    (and sometimes underscores as well), providing access to special services:</p>
+                  <ul>
+                    <li><span class="magic">docker</span> - will open an interactive shell within a
+                      <strong>docker container</strong> of the selected image, at the current directory</li>
+                  </ul>
+                </div>
+                <div class="carousel-item">
+                  <h3><em>ZipLog</em> - Merge selected logs</h3>
+                  <ul>
+                    <li>WebSlit allows you to 'zip' multiple log files (of different types!) together,
+                      for more contextual all-in-one debugging experience</li>
+                    <li>Use <code>`</code> (backtick) to add/remove files from active selection</li>
+                    <li>Use <code>*</code> (asterisk) to toggle (invert) the current selection</li>
+                    <li>You can navigate between folders - the selection will be carried with you</li>
+                    <li>Hit <code>Alt+Enter</code> to <strong>view</strong> the current selection</li>
+                    <li>Hit <code>Esc</code> to <strong>clear</strong> the current selection</li>
+                  </ul>
+                </div>
+                <div class="carousel-item">
+                  <h3>Filtering Entries</h3>
+                  <ul>
+                    <li>Entries can be filtered using the filter box at the top of the page</li>
+                    <li>There are two filtering modes: <em>Comma-Separater Substrings</em> (CSC), and <em>RegEx</em></li>
+                     a<li>In <em>CSC</em> mode (the default), multiple substrings can used to filter entries</li>
+                    <li>In <em>RegEx</em> mode, the entire filter string is used as a regular expression</li>
+                    <li>Use <code>Ctrl+/</code> to toggle between modes</li>
+                  </ul>
+                </div>
+              </div>
+              <a class="carousel-control-prev" href="#webslit-help-carousel" role="button" data-slide="prev">
+                <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+              </a>
+              <a class="carousel-control-next" href="#webslit-help-carousel" role="button" data-slide="next">
+                <span class="carousel-control-next-icon" aria-hidden="true"></span>
+              </a>
+            </div>
           </div>
         </main>
 
         <footer class="mastfoot mt-auto">
           <div class="inner">
             <h6 style="text-align: right;"><i>
-              Hit <b>Escape</b> to go back
+              Hit <b>Escape</b> to close
               </br>
               Click <a href="#" id="toggle-help-view">
                 here</a> to toggle help screen
@@ -185,28 +282,73 @@
           </div>
         </footer>
       </div>
-
     </div>
 
-
-    <div class="footer">
-      <div class="container">
+    <!-- Footer -->
+    <div class="footer" style="z-index: 100">
+      <div id="vue-active-sessions" class="container">
         <span class="muted-text">
-          <a href="https://github.com/koreno/webslit">WebSlit</a> is a gluing together of
-          <a href="https://github.com/huashengdun/webslit">WebSSH</a> and
-          <a href="https://github.com/tigrawap/slit">Slit</a>
+          <strong><a href="https://github.com/koreno/webslit">WebSlit</a></strong> is based on
+          <a href="https://github.com/huashengdun/webslit">WebSSH</a>, and uses
+          <a href="https://github.com/tigrawap/slit">Slit</a> and
+          <a href="https://github.com/da-x/ziplog">ZipLog</a> |
+          Active sessions: <strong id="active-sessions-popper" title="Active Sessions">
+            {{! active_sessions.length }}</strong>  |
+          <strong class="disabled">
+            v{{ major }}.{{ minor }}.<a class="text-reset" href="https://github.com/koreno/webslit/commit/{{ commit }}">{{ commit[:8] }}</a>
+          </strong> |
+          <span class="custom-control- custom-switch">
+            <input type="checkbox" class="custom-control-input" id="termshark-toggle" 
+              v-model="termshark_enabled"
+              true-value="yes"
+              false-value="no"
+            >
+            <label class="custom-control-label" for="termshark-toggle">
+              Use <a href="https://termshark.io/">Termshark</a> to view tcpdump files</label>
+          </span>
+          <a href="#" @click="show_help()">Help</a> |
         </span>
+
+        <div style="display: none" id="active-sessions-container">
+          <table id="active-sessions-content" class="table table-striped table-sm">
+            <tbody>
+              <template v-for="session in active_sessions">
+              <tr>
+                <th scope="row">{{! session['age'] }}s</th>
+                <td>{{! session['ip'] }}</td>
+                <td><a :href="'/' + session['path']">{{! session['path'] }}</a><span v-if="session['n_files'] > 1">...({{!session['n_files']}})</span></td>
+              </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
       </div>
     </div>
 
+
+    <!-- Scripts -->
+    {% if sentry_url %}
+    <script src="https://browser.sentry-cdn.com/5.10.2/bundle.min.js" integrity="sha384-ssBfXiBvlVC7bdA/VX03S88B5MwXQWdnpJRbUYFPgswlOBwETwTp6F3SMUNpo9M9" crossorigin="anonymous"></script>
+    <script type="text/javascript">
+      Sentry.init({
+        dsn: '{{ sentry_url }}',
+        release: '{{ release }}',
+        environment: '{{ environment }}'
+      });
+    </script>
+    {% end %}
+    {% if vue_mode == "prod" %}
+    <script src="/static/js/vue.min.js"></script>
+    {% else %}
+    <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+    {% end %}
+    <script src="/static/js/js.cookie-2.2.1.min.js"></script>
     <script src="/static/js/jquery.min.js"></script>
     <script src="/static/js/popper.min.js"></script>
     <script src="/static/js/bootstrap.min.js"></script>
     <script src="/static/js/xterm.min.js"></script>
     <script src="/static/js/fullscreen.min.js"></script>
-    <script src="/static/js/main.js"></script>
-    <script type="text/javascript">
-      var auto_load = "{{ auto_load }}";
-    </script>
+    <script src="/static/js/main.js?v={{ release }}"></script>
   </body>
 </html>

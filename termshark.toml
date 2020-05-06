@@ -1,0 +1,4 @@
+[main]
+dark-mode = true
+colors = true
+term = "screen-256color"
